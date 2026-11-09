@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# env (secrets stay local)
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# misc
+.DS_Store
+
+# uploaded produce photos (served by express.static, never committed)
+uploads/
