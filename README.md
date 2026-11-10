@@ -80,66 +80,6 @@ npm run lint     # Run ESLint
 `nodemon server.js` also works directly â€” the root `server.js` delegates to
 `src/server.js`, so both entrypoints behave identically.
 
-## Project Structure
-
-```
-src/
-â”œâ”€â”€ config/                 # Configuration
-â”‚   â”œâ”€â”€ db.js              # MongoDB connection
-â”‚   â”œâ”€â”€ env.js             # Environment variables
-â”‚   â””â”€â”€ services.js        # External service configs
-â”‚
-â”œâ”€â”€ modules/                # Feature Modules
-â”‚   â”œâ”€â”€ auth/              # Authentication
-â”‚   â”‚   â”œâ”€â”€ auth.controller.js
-â”‚   â”‚   â”œâ”€â”€ auth.service.js
-â”‚   â”‚   â”œâ”€â”€ auth.routes.js
-â”‚   â”‚   â””â”€â”€ auth.validation.js
-â”‚   â”‚
-â”‚   â”œâ”€â”€ users/             # User management
-â”‚   â”œâ”€â”€ farms/             # Farm management
-â”‚   â”œâ”€â”€ fields/            # Field management
-â”‚   â”œâ”€â”€ crops/             # Crop management
-â”‚   â”œâ”€â”€ crop-cycles/       # Crop cycle tracking
-â”‚   â”œâ”€â”€ harvest/           # Harvest management
-â”‚   â”œâ”€â”€ quality/           # Quality verification
-â”‚   â”œâ”€â”€ marketplace/       # Marketplace
-â”‚   â”œâ”€â”€ demands/           # Demand board
-â”‚   â”œâ”€â”€ matching/          # Farmer-buyer matching
-â”‚   â”œâ”€â”€ orders/            # Orders
-â”‚   â”œâ”€â”€ payments/          # Payments
-â”‚   â”œâ”€â”€ deliveries/        # Deliveries
-â”‚   â”œâ”€â”€ expenses/          # Expense tracking
-â”‚   â”œâ”€â”€ notifications/     # Notifications
-â”‚   â”œâ”€â”€ weather/           # Weather integration
-â”‚   â”œâ”€â”€ recommendations/   # Crop recommendations
-â”‚   â”œâ”€â”€ ai-assistant/      # AI Assistant
-â”‚   â””â”€â”€ admin/             # Admin operations
-â”‚
-â”œâ”€â”€ middleware/             # Middleware
-â”‚   â”œâ”€â”€ auth.middleware.js  # JWT authentication
-â”‚   â”œâ”€â”€ role.middleware.js  # Role-based access
-â”‚   â”œâ”€â”€ error.middleware.js # Error handling
-â”‚   â””â”€â”€ upload.middleware.js # File uploads
-â”‚
-â”œâ”€â”€ database/               # Database
-â”‚   â”œâ”€â”€ models/            # Mongoose models
-â”‚   â”œâ”€â”€ indexes/           # Database indexes
-â”‚   â””â”€â”€ seed/              # Seed data
-â”‚
-â”œâ”€â”€ integrations/          # External Services
-â”‚   â”œâ”€â”€ ai/                # AI API integration
-â”‚   â”œâ”€â”€ weather/           # Weather API
-â”‚   â”œâ”€â”€ payment/           # Payment gateway
-â”‚   â”œâ”€â”€ storage/           # Cloud storage
-â”‚   â””â”€â”€ agricultural-data/ # Government datasets
-â”‚
-â”œâ”€â”€ utils/                 # Utilities
-â”œâ”€â”€ types/                 # Type definitions
-â”œâ”€â”€ constants/             # Constants
-â”œâ”€â”€ app.js                 # Express app setup
-â””â”€â”€ server.js              # Server entry point
-```
 
 ## API Endpoints
 
