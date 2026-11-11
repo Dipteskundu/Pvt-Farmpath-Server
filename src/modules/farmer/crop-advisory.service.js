@@ -326,6 +326,172 @@ const buildRecommendations = async (input = {}, user = null) => {
   return recommendations.slice(0, 8);
 };
 
+const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const escapeRegExp = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Resolves a recommendation-card id into a master-catalog Crop row.
+ * Catalog-backed cards carry the MongoDB `_id`; AI-only crops carry the
+ * canonical crop name, so both shapes are accepted.
+ */
+const findCatalogCrop = async (cropId) => {
+  const id = String(cropId || "").trim();
+
+  if (objectIdPattern.test(id)) {
+    const byId = await Crop.findById(id).lean();
+    if (byId) {
+      return byId;
+    }
+  }
+
+  if (!id) {
+    return null;
+  }
+
+  return Crop.findOne({
+    cropName: new RegExp(`^${escapeRegExp(id)}$`, "i"),
+  }).lean();
+};
+
+/**
+ * Fetches the rich agronomic profile (lifecycle, climate envelope, BARC
+ * zoning, FRG-2024 fertilizer plan) from the AI service. Any failure or
+ * timeout degrades to null so the detail page can still render whatever
+ * the master catalog provides.
+ */
+const fetchAiCropDetail = async (cropName, farm) => {
+  const params = new URLSearchParams();
+
+  const { district, upazila } = farm
+    ? parseFarmLocation(farm.location)
+    : { district: null, upazila: null };
+
+  if (district) {
+    params.set("district", district);
+  }
+  if (upazila) {
+    params.set("upazila", upazila);
+  }
+
+  const area = Number(farm?.totalAreaAcres) > 0 ? Number(farm.totalAreaAcres) : 1;
+  params.set("area", String(area));
+  params.set("area_unit", "acre");
+
+  /*
+   * Master-catalog names can carry variety suffixes the AI catalog does not
+   * know ("Winter Potato (Diamant & Cardinal)"), so a stripped variant is
+   * tried as a fallback when the exact name does not resolve.
+   */
+  const candidateNames = [
+    cropName,
+    String(cropName).replace(/\(.*\)/, "").trim(),
+  ].filter((name, index, list) => name && list.indexOf(name) === index);
+
+  for (const candidate of candidateNames) {
+    try {
+      const response = await fetch(
+        `${AI_SERVICE_URL}/crop-detail/${encodeURIComponent(candidate)}?${params.toString()}`,
+        {
+          headers: {
+            "X-AI-Service-Key": process.env.AI_SERVICE_API_KEY || "",
+          },
+          // Same budget as the recommendation call: never stall the UI.
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+
+      if (!response.ok) {
+        continue;
+      }
+
+      return await response.json();
+    } catch {
+      // AI service unreachable — degrade below.
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Builds the full crop detail profile shown on the recommendation
+ * detail page. Merges the master Crop catalog (benchmarks, varieties,
+ * pests) with the AI service catalog (lifecycle, climate, BARC zoning,
+ * FRG-2024 fertilizer plan), degrading gracefully per source.
+ */
+const buildCropDetail = async (cropId, user = null) => {
+  if (!cropId) {
+    throw new Error("A crop identifier is required.");
+  }
+
+  /*
+   * The farmer's active farm supplies the district (BARC zoning) and the
+   * land size (fertilizer area scaling), mirroring buildRecommendations.
+   */
+  let farm = null;
+
+  if (user?._id) {
+    farm = await Farm.findOne({
+      owner: user._id,
+      status: "active",
+    })
+      .sort({ createdAt: 1 })
+      .lean();
+  }
+
+  const crop = await findCatalogCrop(cropId);
+
+  const cropName = crop?.cropName || String(cropId).trim();
+  const aiDetail = cropName
+    ? await fetchAiCropDetail(cropName, farm)
+    : null;
+
+  return {
+    query: {
+      cropId: String(cropId),
+      resolvedName: cropName,
+    },
+    identity: {
+      cropName:
+        crop?.cropName ||
+        aiDetail?.identity?.canonical_name ||
+        cropName,
+      banglaName: aiDetail?.identity?.bangla_name || null,
+      scientificName: crop?.scientificName || "",
+      category: aiDetail?.identity?.category || crop?.category || null,
+      canonicalName: aiDetail?.identity?.canonical_name || null,
+      spasLabel: aiDetail?.identity?.spas_label || null,
+      verifiedSeasons: aiDetail?.identity?.verified_seasons || [],
+      inMasterCatalog: Boolean(crop),
+    },
+    benchmarks: {
+      recommendedSeason: crop?.recommendedSeason || null,
+      maturityPeriodDays: crop?.averageMaturityDays ?? null,
+      estimatedYieldKgPerAcre: crop?.standardYieldKgPerAcre ?? null,
+      expectedMarketPricePerKg: crop?.benchmarkPriceBdtPerKg ?? null,
+      optimalSoilPhRange: crop?.optimalSoilPhRange || null,
+      minRainfallMm: crop?.minRainfallMm ?? null,
+      maxRainfallMm: crop?.maxRainfallMm ?? null,
+      waterRequirementMm:
+        crop?.minRainfallMm != null && crop?.maxRainfallMm != null
+          ? Math.round((crop.minRainfallMm + crop.maxRainfallMm) / 2)
+          : null,
+      recommendedVarieties: crop?.approvedVarieties || [],
+      pestVulnerabilities: crop?.pestVulnerabilities || [],
+    },
+    lifecycle: aiDetail?.lifecycle || null,
+    climateEnvelope: aiDetail?.climate_envelope || null,
+    barcSuitability: aiDetail?.barc_suitability || null,
+    fertilizerPlan: aiDetail?.fertilizer_plan || null,
+    sources: {
+      masterCatalog: Boolean(crop),
+      aiService: Boolean(aiDetail),
+    },
+  };
+};
+
 const buildComparisonProfiles = async () => {
   const crops = await Crop.find().sort({ cropName: 1 }).lean();
 
@@ -530,6 +696,7 @@ const buildAiDiagnostic = async (user) => {
 
 module.exports = {
   buildRecommendations,
+  buildCropDetail,
   buildComparisonProfiles,
   buildAiDiagnostic,
 };

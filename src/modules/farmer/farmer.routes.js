@@ -289,4 +289,14 @@ router.get("/crops/ai-diagnostic", async (req, res, next) => {
   }
 });
 
+router.get("/crops/:cropId/detail", async (req, res, next) => {
+  try {
+    res.json(
+      await cropAdvisory.buildCropDetail(req.params.cropId, req.user)
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
