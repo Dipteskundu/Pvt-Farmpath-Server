@@ -45,16 +45,14 @@ AI_SERVICE_URL=http://127.0.0.1:8000
 # Frontend URL
 FRONTEND_URL=http://localhost:3000
 
-# Absolute origin of this API (used for uploaded-photo URLs in local-disk
-# fallback mode; set to https://<project>.vercel.app on Vercel)
+# Absolute origin of this API (optional; used only by legacy local-disk
+# photo URLs that pre-date ImgBB storage)
 PUBLIC_API_URL=
 
-# Cloudinary (photo uploads) - when all three are set, produce photos are
-# uploaded to Cloudinary instead of the local `uploads/` directory.
-# Required on Vercel (read-only filesystem).
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
+# ImgBB (photo uploads) - required. Every user-uploaded photo (listing
+# produce photos, avatars, supplier product photos) is stored on ImgBB
+# and rendered from its hosted URL. Free key: https://api.imgbb.com
+IMGBB_API_KEY=your_imgbb_api_key
 
 # Cron secret for the hourly escrow auto-release
 # (GET /api/orders/escrow/cron, scheduled by vercel.json "crons")
@@ -223,9 +221,9 @@ The backend deploys as a single serverless Express function:
 | `MONGODB_URI` | MongoDB Atlas connection string (local Mongo is unreachable from Vercel) |
 | `JWT_SECRET` / `JWT_EXPIRE` | Token signing (tokens get no expiry if `JWT_EXPIRE` is missing) |
 | `NODE_ENV` | `production` |
-| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Photo uploads (serverless filesystem is read-only) |
+| `IMGBB_API_KEY` | Photo uploads — every user-uploaded image is stored on ImgBB |
 | `CRON_SECRET` | Authenticates `GET /api/orders/escrow/cron` (Vercel Cron sends it as `Bearer $CRON_SECRET`) |
-| `PUBLIC_API_URL` | Optional; only used by the local-disk upload fallback |
+| `PUBLIC_API_URL` | Optional; only used by legacy local-disk photo URLs |
 
 ### Deploy
 

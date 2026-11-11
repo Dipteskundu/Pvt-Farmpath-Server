@@ -2,8 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const mongoose = require("mongoose");
-const fs = require("fs");
-const path = require("path");
 const connectDB = require("./config/db");
 const { isDbConnected } = require("./config/db");
 const errorHandler = require("./middleware/error.middleware");
@@ -25,9 +23,7 @@ if (isProduction) {
     "AI_SERVICE_URL",
     "AI_SERVICE_API_KEY",
     "CRON_SECRET",
-    "CLOUDINARY_CLOUD_NAME",
-    "CLOUDINARY_API_KEY",
-    "CLOUDINARY_API_SECRET",
+    "IMGBB_API_KEY",
   ];
   const missing = required.filter((key) => !process.env[key]?.trim());
   if (!allowedOrigins.length) {
@@ -54,21 +50,9 @@ app.set("trust proxy", 1);
 // Connect to MongoDB (retries in the background, never crashes the server)
 connectDB();
 
-// Produce photos uploaded via POST /api/marketplace/upload land in `uploads/`
-// (multer's relative destination, so it resolves against the process cwd).
-// Create it on boot: a missing directory makes multer fail with ENOENT on the
-// very first upload. Served from this origin so `<img src>` can use the
-// absolute URL the upload route returns.
-const uploadDir = path.join(process.cwd(), "uploads");
-try {
-  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-} catch (err) {
-  // Serverless runtimes (Vercel) mount a read-only filesystem: there is no
-  // local `uploads/` to create because uploads go to Cloudinary instead.
-  // Never let a missing directory take the whole app down at import time.
-  console.warn(`uploads/ unavailable (${err.message}); local photo storage disabled.`);
-}
-app.use("/uploads", express.static(uploadDir));
+// User-uploaded photos go straight to ImgBB (`config/imgbb.js`) — the API
+// stores and returns only the hosted URL, so there is no local `uploads/`
+// directory or static route to maintain.
 
 // Middleware
 /*

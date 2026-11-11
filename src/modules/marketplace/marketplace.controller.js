@@ -124,15 +124,9 @@ exports.ratings = handle(async (req) => {
 /**
  * Persist a produce photo and hand back the URL to store in `imageUrl`.
  *
- * Cloudinary mode (credentials configured): the multer buffer is streamed to
- * the `farmpath/listings` folder and `result.secure_url` is returned — an
- * absolute https URL, which is what the frontend needs since it serves pages
- * from a different origin than this API.
- *
- * Disk mode (no credentials): the URL is built from `PUBLIC_API_URL` or the
- * request host. Falls back to the request host, which is correct behind a
- * direct connection (the normal dev setup here), and the file is served by
- * the static `/uploads` route.
+ * The multer buffer is uploaded to ImgBB (`config/imgbb.js`) and the
+ * returned URL is an absolute https address, which is what the frontend
+ * needs since it serves pages from a different origin than this API.
  */
 exports.uploadImage = handle(async (req) => {
   if (!req.file) {
@@ -143,20 +137,7 @@ exports.uploadImage = handle(async (req) => {
     throw err;
   }
 
-  // Memory storage is selected by the middleware only when Cloudinary is
-  // configured; disk storage populates `path` instead of `buffer`.
-  if (req.file.buffer) {
-    const cloudinary = require("../../config/cloudinary");
-    const result = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: "farmpath/listings" },
-        (error, uploaded) => (error ? reject(error) : resolve(uploaded))
-      );
-      stream.end(req.file.buffer);
-    });
-    return { url: result.secure_url };
-  }
-
-  const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get("host")}`;
-  return { url: `${base.replace(/\/$/, "")}/uploads/${req.file.filename}` };
+  const { uploadToImgbb } = require("../../config/imgbb");
+  const url = await uploadToImgbb(req.file.buffer, req.file.originalname, req.file.mimetype);
+  return { url };
 });

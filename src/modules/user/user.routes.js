@@ -153,9 +153,9 @@ router.delete("/profile/photo", async (req, res, next) => {
 
 /*
  * Profile photo upload. Mirrors `POST /marketplace/upload` on the storage
- * side (Cloudinary when credentials exist, `uploads/` + the static route
- * otherwise) but scopes the upload and URL to the caller's account and
- * returns `{ avatarUrl }`, the shape `uploadProfilePhoto()` expects.
+ * side (ImgBB via `config/imgbb.js`) but scopes the upload and URL to the
+ * caller's account and returns `{ avatarUrl }`, the shape
+ * `uploadProfilePhoto()` expects.
  */
 const uploadPhoto = (req, res, next) => {
   upload.single("photo")(req, res, (err) => {
@@ -180,28 +180,12 @@ router.post("/profile/photo", uploadPhoto, async (req, res, next) => {
     }
 
     let avatarUrl;
-    if (req.file.buffer) {
-      try {
-        const cloudinary = require("../../config/cloudinary");
-        const result = await new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: "farmpath/avatars" },
-            (error, uploaded) => (error ? reject(error) : resolve(uploaded))
-          );
-          stream.end(req.file.buffer);
-        });
-        avatarUrl = result.secure_url;
-      } catch (cloudErr) {
-        // Buffer storage is used only for Cloudinary. Do not report a local
-        // URL for a file that was never persisted, especially on serverless.
-        console.error(`Cloudinary upload failed (${cloudErr.message}).`);
-        const err = new Error("Photo storage is temporarily unavailable. Please try again.");
-        err.statusCode = 503;
-        return next(err);
-      }
-    } else {
-      const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get("host")}`;
-      avatarUrl = `${base.replace(/\/$/, "")}/uploads/${req.file.filename}`;
+    try {
+      const { uploadToImgbb } = require("../../config/imgbb");
+      avatarUrl = await uploadToImgbb(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } catch (storageErr) {
+      console.error(`ImgBB avatar upload failed (${storageErr.message}).`);
+      return next(storageErr);
     }
 
     req.user.profileImage = avatarUrl;
