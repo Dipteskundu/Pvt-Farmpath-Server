@@ -184,7 +184,6 @@ router.post("/profile/photo", uploadPhoto, async (req, res, next) => {
       const { uploadToImgbb } = require("../../config/imgbb");
       avatarUrl = await uploadToImgbb(req.file.buffer, req.file.originalname, req.file.mimetype);
     } catch (storageErr) {
-      console.error(`ImgBB avatar upload failed (${storageErr.message}).`);
       return next(storageErr);
     }
 

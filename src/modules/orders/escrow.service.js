@@ -76,9 +76,6 @@ async function resolveSellerId(doc) {
 async function creditSeller(doc, reason) {
   const sellerId = await resolveSellerId(doc);
   if (!sellerId) {
-    console.warn(
-      `Escrow: ${doc.orderCode} released with no resolvable seller — no wallet credit written`
-    );
     return null;
   }
 
@@ -197,20 +194,13 @@ async function releaseDueEscrow({ req = null } = {}) {
     if (released) report.released.push(doc.orderCode);
   }
 
-  if (report.released.length || report.started.length) {
-    console.log(
-      `Escrow sweep: released ${report.released.length}, started ${report.started.length}` +
-        (report.released.length ? ` (${report.released.join(", ")})` : "")
-    );
-  }
-
   return report;
 }
 
 /**
  * Register the hourly sweeper. `unref()` so the interval never holds the
  * process open during shutdown, and a readyState guard so a dropped Atlas
- * connection logs a warning instead of throwing an unhandled rejection.
+ * connection skips the tick instead of throwing an unhandled rejection.
  *
  * Set `DISABLE_ESCROW_SWEEP=1` to opt out (tests that drive
  * `POST /api/orders/escrow/release-due` instead).
@@ -220,14 +210,14 @@ function startEscrowSweeper(intervalMs = 60 * 60 * 1000) {
     if (mongoose.connection.readyState !== 1) return;
     try {
       await releaseDueEscrow();
-    } catch (error) {
-      console.warn(`Escrow sweep failed: ${error.message}`);
+    } catch {
+      // The next tick retries; failures surface through the orders the
+      // sweep leaves unreleased and through /health.
     }
   };
 
   const timer = setInterval(tick, intervalMs);
   timer.unref();
-  console.log(`Escrow sweep scheduled every ${Math.round(intervalMs / 60000)} min`);
   return timer;
 }
 

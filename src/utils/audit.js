@@ -18,8 +18,9 @@ async function logAudit({ req, action, entity, entityId = "", details = "", stat
       status,
       details,
     });
-  } catch (error) {
-    console.error(`Audit log failed: ${error.message}`);
+  } catch {
+    // Audit failures must never break the business action that triggered
+    // the log; the failed entry is simply skipped.
   }
 }
 

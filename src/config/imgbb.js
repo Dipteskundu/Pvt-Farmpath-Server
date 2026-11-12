@@ -43,10 +43,6 @@ const uploadToImgbb = async (buffer, filename = "upload.jpg", mimetype = "image/
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok || !result?.success || !result?.data?.url) {
-    console.error(
-      `ImgBB upload failed (HTTP ${response.status}):`,
-      result?.error?.message || result?.status_txt || "no detail returned"
-    );
     const uploadErr = new Error("Image storage rejected the upload. Please try again.");
     uploadErr.statusCode = 503;
     throw uploadErr;

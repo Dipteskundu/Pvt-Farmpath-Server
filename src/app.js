@@ -1,6 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const morgan = require("morgan");
 const mongoose = require("mongoose");
 const connectDB = require("./config/db");
 const { isDbConnected } = require("./config/db");
@@ -79,7 +78,7 @@ const corsOptions =
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev"));
+// No request logger: the app writes nothing to stdout by design.
 
 app.get("/docs/swagger.json", (req, res) => res.json(swaggerSpec));
 

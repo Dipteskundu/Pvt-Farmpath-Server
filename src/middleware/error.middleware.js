@@ -2,8 +2,8 @@ const errorHandler = (err, req, res, _next) => {
   let error = { ...err };
   error.message = err.message;
 
-  console.error(err.stack);
-
+  // Errors are surfaced to clients through the structured responses below;
+  // request-path code writes nothing to stdout.
   // Mongoose bad ObjectId
   if (err.name === "CastError") {
     error.message = "Resource not found";

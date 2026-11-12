@@ -1,5 +1,14 @@
 const mongoose = require("mongoose");
 
+/**
+ * MongoDB connection with exponential-backoff retries.
+ *
+ * Logging is intentionally silent: request-path code must not write to
+ * stdout (hosting platforms stream it into browser-visible dashboards and
+ * it is noise in serverless logs). Connection state is exposed through
+ * `isDbConnected()`, which `/health` reports to clients instead.
+ */
+
 const MAX_RETRY_DELAY_MS = 15000;
 const BASE_RETRY_DELAY_MS = 2000;
 
@@ -12,9 +21,6 @@ const getRetryDelay = () =>
 const scheduleRetry = () => {
   if (retryTimer) return;
   const delay = getRetryDelay();
-  console.warn(
-    `MongoDB connection lost/failed. Retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1})...`
-  );
   retryTimer = setTimeout(() => {
     retryTimer = null;
     connectDB();
@@ -25,7 +31,6 @@ const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
 
   if (!uri) {
-    console.error("MONGODB_URI is not set. Check the .env file in FarmPath-Server.");
     scheduleRetry();
     return null;
   }
@@ -37,23 +42,19 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
     });
     attempt = 0;
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
     return conn;
-  } catch (error) {
-    console.error(`MongoDB connection error: ${error.message}`);
+  } catch {
     scheduleRetry();
     return null;
   }
 };
 
 mongoose.connection.on("disconnected", () => {
-  console.warn("MongoDB disconnected.");
   scheduleRetry();
 });
 
 mongoose.connection.on("reconnected", () => {
   attempt = 0;
-  console.log("MongoDB reconnected.");
 });
 
 const isDbConnected = () => mongoose.connection.readyState === 1;

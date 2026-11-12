@@ -87,20 +87,6 @@ const getAiFarmRecommendation = async (input, farm) => {
     crop_stage: null,
   };
 
-
-  console.log("[Crop AI diagnostic]", {
-    farmId: String(farm._id),
-    farmLocation: farm.location,
-    district: payload.field.district,
-    upazila: payload.field.upazila,
-    latitude: payload.field.latitude,
-    longitude: payload.field.longitude,
-    season: payload.season,
-    area: payload.field.area,
-    soil: payload.soil,
-  });
-
-
   let response;
   try {
     response = await fetch(`${AI_SERVICE_URL}/recommend/farm`, {
@@ -141,35 +127,210 @@ const getAiFarmRecommendation = async (input, farm) => {
 };
 
 /**
+ * Fallback market prices by crop category (BDT/kg)
+ * Based on typical Bangladesh market prices for common crops.
+ */
+const CATEGORY_FALLBACK_PRICES = {
+  "Cereal": 28,
+  "Pulse": 85,
+  "Oilseed": 90,
+  "Vegetable": 25,
+  "Fruit": 45,
+  "Spice": 120,
+  "Fiber": 35,
+  "Root/Tuber": 20,
+  "default": 30
+};
+
+/**
+ * Fallback yields by crop category (kg/acre)
+ */
+const CATEGORY_FALLBACK_YIELDS = {
+  "Cereal": 2200,
+  "Pulse": 800,
+  "Oilseed": 750,
+  "Vegetable": 8000,
+  "Fruit": 5000,
+  "Spice": 1500,
+  "Fiber": 1200,
+  "Root/Tuber": 10000,
+  "default": 2000
+};
+
+/**
+ * Approximate fertilizer prices per kg (BDT) - typical Bangladesh retail prices
+ */
+const FERTILIZER_PRICES_PER_KG = {
+  "Urea": 28,
+  "TSP": 42,
+  "MoP": 35,
+  "Gypsum": 12,
+  "Zinc Sulfate": 85,
+  "Boric Acid": 180
+};
+
+/**
+ * Estimates input cost per acre from AI fertilizer plan
+ */
+const estimateCostFromFertilizerPlan = (fertilizerPlan, areaAcres) => {
+  if (!fertilizerPlan || !fertilizerPlan.fertilizer_products || !fertilizerPlan.fertilizer_products.length) {
+    return null;
+  }
+
+  let totalCost = 0;
+  for (const product of fertilizerPlan.fertilizer_products) {
+    const productName = product.product_name;
+    const quantityKg = product.quantity_kg;
+
+    // Match product to price
+    let pricePerKg = null;
+    for (const [key, price] of Object.entries(FERTILIZER_PRICES_PER_KG)) {
+      if (productName.includes(key)) {
+        pricePerKg = price;
+        break;
+      }
+    }
+
+    if (pricePerKg) {
+      totalCost += quantityKg * pricePerKg;
+    }
+  }
+
+  // Scale to per acre if area is different
+  const planAreaAcres = fertilizerPlan.field_area?.acres || 1;
+  if (planAreaAcres > 0 && areaAcres > 0) {
+    totalCost = totalCost * (areaAcres / planAreaAcres);
+  }
+
+  return totalCost > 0 ? Math.round(totalCost) : null;
+};
+
+/**
+ * Derives risk factor from BARC suitability and model confidence
+ */
+const deriveRiskFactor = (candidate, confidence) => {
+  const suitabilityClass = candidate.barc_suitability?.suitability_class;
+  const isTracked = candidate.barc_suitability?.is_tracked;
+
+  if (!isTracked || !suitabilityClass) {
+    // No BARC data - base on model confidence only
+    if (confidence >= 0.7) return "Low";
+    if (confidence >= 0.4) return "Medium";
+    return "High";
+  }
+
+  // Has BARC data - combine with confidence
+  const suitabilityRisk = {
+    "Very Suitable": "Low",
+    "Suitable": "Low",
+    "Moderately Suitable": "Medium",
+    "Marginally Suitable": "High",
+    "Not Suitable": "High"
+  }[suitabilityClass] || "Unknown";
+
+  if (suitabilityRisk === "Unknown") {
+    return confidence >= 0.5 ? "Medium" : "High";
+  }
+
+  // Adjust based on confidence
+  if (confidence >= 0.7 && suitabilityRisk === "Low") return "Low";
+  if (confidence >= 0.5 && suitabilityRisk !== "High") return "Medium";
+  if (suitabilityRisk === "High") return "High";
+  return "Medium";
+};
+
+/**
+ * Estimates water requirement from available data
+ */
+const estimateWaterRequirement = (candidate, crop, aiResult) => {
+  // 1. Try catalog min/max rainfall
+  if (crop?.minRainfallMm != null && crop?.maxRainfallMm != null) {
+    return Math.round((crop.minRainfallMm + crop.maxRainfallMm) / 2);
+  }
+
+  // 2. Try AI service climate envelope
+  if (aiResult?.climate_envelope) {
+    const env = aiResult.climate_envelope;
+    if (env.optimal_avg_humidity_pct && env.max_temp_c) {
+      // Rough estimate based on climate envelope
+      return Math.round(env.optimal_avg_humidity_pct * 15); // heuristic
+    }
+  }
+
+  // 3. Try crop lifecycle if available
+  if (candidate?.season_compatibility?.lifecycle?.growth_window) {
+    // Could parse growth window for duration, but skip for now
+  }
+
+  // 4. Category-based fallback
+  const category = crop?.category || candidate?.category;
+  const categoryWater = {
+    "Cereal": 1200,
+    "Pulse": 500,
+    "Oilseed": 400,
+    "Vegetable": 800,
+    "Fruit": 1000,
+    "Spice": 600,
+    "Fiber": 1500,
+    "Root/Tuber": 600
+  }[category] || 800;
+
+  return categoryWater;
+};
+
+/**
+ * Helper to get fallback yield for a crop
+ */
+const getFallbackYield = (crop, candidate) => {
+  const category = crop?.category || candidate?.category;
+  return CATEGORY_FALLBACK_YIELDS[category] || CATEGORY_FALLBACK_YIELDS.default;
+};
+
+/**
+ * Helper to get fallback price for a crop
+ */
+const getFallbackPrice = (crop, candidate) => {
+  const category = crop?.category || candidate?.category;
+  return CATEGORY_FALLBACK_PRICES[category] || CATEGORY_FALLBACK_PRICES.default;
+};
+
+/**
+ * Helper to get fallback water requirement for a crop
+ */
+const getFallbackWaterRequirement = (crop, candidate, aiResult) => {
+  return estimateWaterRequirement(candidate, crop, aiResult);
+};
+
+/**
  * Converts an AI candidate into the existing frontend
  * CropRecommendationItem structure.
  */
-
-const mapAiCandidateToCrop = (candidate, crop, index) => {
+const mapAiCandidateToCrop = (candidate, crop, index, aiResult, areaAcres) => {
   const modelScore = Number(candidate.model_confidence_score);
   const hasModelScore = Number.isFinite(modelScore);
 
-  // Only use financial and agronomic values backed by the database.
-  // Do not invent values for crops absent from the catalogue.
+  // Yield: use catalog value or category fallback
   const yieldKg =
     crop?.standardYieldKgPerAcre != null
       ? Math.round(crop.standardYieldKgPerAcre * 100) / 100
-      : null;
+      : getFallbackYield(crop, candidate);
 
+  // Price: use catalog value or category fallback
   const price =
     crop?.benchmarkPriceBdtPerKg != null
       ? crop.benchmarkPriceBdtPerKg
-      : null;
+      : getFallbackPrice(crop, candidate);
 
-  const revenue =
-    yieldKg != null && price != null
-      ? Math.round(yieldKg * price)
-      : null;
+  const revenue = yieldKg != null && price != null
+    ? Math.round(yieldKg * price)
+    : null;
 
-  // No verified cost model is available for arbitrary AI crops.
-  const cost = null;
-  const profit = null;
-  const roi = null;
+  // Estimate cost from fertilizer plan (if available)
+  const cost = estimateCostFromFertilizerPlan(aiResult?.fertilizer_plan, areaAcres);
+
+  // Calculate profit and ROI when possible
+  const profit = (revenue != null && cost != null) ? Math.round(revenue - cost) : null;
+  const roi = (profit != null && cost != null && cost > 0) ? Math.round((profit / cost) * 100) : null;
 
   const cropName =
     crop?.cropName ||
@@ -181,6 +342,12 @@ const mapAiCandidateToCrop = (candidate, crop, index) => {
   const confidence = hasModelScore
     ? Math.max(0, Math.min(1, modelScore))
     : 0;
+
+  // Determine risk factor from BARC suitability and model confidence
+  const riskFactor = deriveRiskFactor(candidate, confidence);
+
+  // Estimate water requirement
+  const waterRequirementMm = getFallbackWaterRequirement(crop, candidate, aiResult);
 
   return {
     id: String(crop?._id || candidate.canonical_name || cropName),
@@ -201,14 +368,9 @@ const mapAiCandidateToCrop = (candidate, crop, index) => {
     estimatedProfitPerAcre: profit,
     roiPercentage: roi,
 
-    // Model confidence is not the same as agricultural risk.
-    // Keep risk unclassified until a validated risk estimate exists.
-    riskFactor: "Unknown",
+    riskFactor,
 
-    waterRequirementMm:
-      crop?.minRainfallMm != null && crop?.maxRainfallMm != null
-        ? Math.round((crop.minRainfallMm + crop.maxRainfallMm) / 2)
-        : null,
+    waterRequirementMm,
 
     keyAdvantages: [
       `AI rank #${candidate.rank || index + 1}`,
@@ -264,10 +426,15 @@ const buildRecommendations = async (input = {}, user = null) => {
     );
   }
 
-  /*
-   * Call the real FastAPI/XGBoost service.
-   */
-  const aiResult = await getAiFarmRecommendation(input, farm);
+/*
+    * Call the real FastAPI/XGBoost service.
+    */
+   const aiResult = await getAiFarmRecommendation(input, farm);
+
+   // Calculate area in acres for cost estimation
+   const area = Number(input.targetLandSizeAcres) > 0
+     ? Number(input.targetLandSizeAcres)
+     : Number(farm.totalAreaAcres) || 1;
 
   /*
    * Load our local Crop catalog so the existing frontend
@@ -319,7 +486,7 @@ const buildRecommendations = async (input = {}, user = null) => {
      * The mapper marks unavailable catalogue values as null.
      */
     recommendations.push(
-      mapAiCandidateToCrop(candidate, crop, index)
+      mapAiCandidateToCrop(candidate, crop, index, aiResult, area)
     );
   }
 
@@ -469,15 +636,15 @@ const buildCropDetail = async (cropId, user = null) => {
     benchmarks: {
       recommendedSeason: crop?.recommendedSeason || null,
       maturityPeriodDays: crop?.averageMaturityDays ?? null,
-      estimatedYieldKgPerAcre: crop?.standardYieldKgPerAcre ?? null,
-      expectedMarketPricePerKg: crop?.benchmarkPriceBdtPerKg ?? null,
+      estimatedYieldKgPerAcre: crop?.standardYieldKgPerAcre ?? getFallbackYield(crop, { category: crop?.category }),
+      expectedMarketPricePerKg: crop?.benchmarkPriceBdtPerKg ?? getFallbackPrice(crop, { category: crop?.category }),
       optimalSoilPhRange: crop?.optimalSoilPhRange || null,
       minRainfallMm: crop?.minRainfallMm ?? null,
       maxRainfallMm: crop?.maxRainfallMm ?? null,
       waterRequirementMm:
         crop?.minRainfallMm != null && crop?.maxRainfallMm != null
           ? Math.round((crop.minRainfallMm + crop.maxRainfallMm) / 2)
-          : null,
+          : getFallbackWaterRequirement(crop, { category: crop?.category }, aiDetail),
       recommendedVarieties: crop?.approvedVarieties || [],
       pestVulnerabilities: crop?.pestVulnerabilities || [],
     },

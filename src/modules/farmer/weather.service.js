@@ -268,9 +268,8 @@ async function buildWeatherData(location = {}) {
     failureCooldowns.delete(key);
 
     return mapWeatherResponse(weather, microclimateAlerts);
-  } catch (error) {
+  } catch {
     failureCooldowns.set(key, Date.now() + FAILURE_COOLDOWN_MS);
-    console.error("Live weather retrieval failed:", error.message);
 
     // Serve the last successful forecast even when it has expired.
     if (cached) {
